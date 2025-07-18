@@ -5,8 +5,9 @@ const { sendVerificationEmail, sendResetPasswordEmail } = require('../services/e
 
 const registerUser = asyncHandler(async (req, res) => {
     const { name, email, password, phone } = req.body;
+    const lowerCaseEmail = email.toLowerCase();
 
-    const emailExists = await User.findOne({ email });
+    const emailExists = await User.findOne({ email: lowerCaseEmail });
     if (emailExists) {
         res.status(400);
         throw new Error('User with that email already exists.');
@@ -22,7 +23,7 @@ const registerUser = asyncHandler(async (req, res) => {
     
     const user = new User({
         name,
-        email,
+        email: lowerCaseEmail,
         password, 
         phone: phone || null,
         isVerified: false,
@@ -58,8 +59,8 @@ const registerUser = asyncHandler(async (req, res) => {
 
 const loginUser = asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-
-    const user = await User.findOne({ email });
+const lowerCaseEmail = email.toLowerCase();
+    const user = await User.findOne({ email :lowerCaseEmail  });
 
     if (!user) {
         res.status(401);
@@ -74,27 +75,27 @@ const loginUser = asyncHandler(async (req, res) => {
     if (await user.matchPassword(password)) {
         const sessionId = crypto.randomBytes(16).toString('hex');
 
-        if (user.activeSessions.length >= user.maxConcurrentSessions) {
-            res.status(403);
-            throw new Error(`Maximum number of active sessions (${user.maxConcurrentSessions}) reached.`);
+       if (user.activeSessions.length >= user.maxConcurrentSessions) {
+            const oldestSessionId = user.activeSessions.shift(); 
         }
+
 
         user.activeSessions.push(sessionId);
         await user.save();
-
-        res.json({
+    const token = user.generateAuthToken();
+  res.json({
             _id: user._id,
             name: user.name,
             email: user.email,
             phone: user.phone,
             role: user.role,
             subscriptionStatus: user.subscriptionStatus,
-            token: user.generateAuthToken(),
+            token: token,
             sessionId: sessionId
         });
     } else {
         res.status(401);
-        throw new Error('Invalid email or password.');
+        throw new Error('Invalid email or password (Password mismatch).');
     }
 });
 

@@ -9,7 +9,9 @@ const documentAnalysisRoutes = require('./routes/documentAnalysisRoutes');
 const contractManagementRoutes = require('./routes/contractManagementRoutes');
 const riskAnalysisRoutes = require('./routes/riskAnalysisRoutes');
 const caseAnalysisRoutes = require('./routes/caseAnalysisRoutes');
-const chatRoutes = require('./routes/chatRoutes');
+const legalQnARoutes = require('./routes/legalQnARoutes'); // استيراد مسارات أداة الأسئلة القانونية
+const legalStorytellingRoutes = require('./routes/legalStorytellingRoutes'); 
+
 
 dotenv.config();
 
@@ -34,8 +36,9 @@ app.get('/', (req, res) => {
 app.use('/api/tools/document-analysis', documentAnalysisRoutes);
 app.use('/api/contract-management', contractManagementRoutes);
 app.use('/api/risk-analysis', riskAnalysisRoutes);
-app.use('/api/case-analysis', caseAnalysisRoutes);
-app.use('/api/chat', chatRoutes); 
+app.use('/api/case-analysis', caseAnalysisRoutes);  
+app.use('/api/legal-qna', legalQnARoutes);
+app.use('/api/legal-storytelling', legalStorytellingRoutes); // **ربط مسارات الأداة الجديدة**
 
 app.use('/api/users', express.json(), express.urlencoded({ extended: false }), userRoutes);
 

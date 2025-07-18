@@ -2,7 +2,6 @@ const fs = require('fs/promises');
 const path = require('path'); 
 const pdf = require('pdf-parse'); 
 const mammoth = require('mammoth'); 
-const { createWorker } = require('tesseract.js'); 
 const { client: weaviateClient } = require('../config/weaviateClient');
 const { EmbeddingsClass, textSplitter } = require('../config/aiConfig');
 
@@ -26,11 +25,6 @@ const extractTextFromFile = async (filePath) => {
         return result.value;
     } else if (ext === '.txt') {
         return fileBuffer.toString('utf8');
-    } else if (['.jpg', '.jpeg', '.png', '.gif', '.tif', '.tiff', '.webp', '.bmp'].includes(ext)) {
-        const worker = await createWorker('ara',1); 
-        const { data: { text } } = await worker.recognize(fileBuffer);
-        await worker.terminate(); 
-        return text;
     } 
     else {
         throw new Error(`Unsupported file type: ${ext}`);

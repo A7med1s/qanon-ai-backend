@@ -1,15 +1,12 @@
 const asyncHandler = require('express-async-handler');
 const { chatModel } = require('../config/aiConfig');
-const fs = require('fs/promises');
 const { extractTextFromFile } = require('../services/legalDataService');
 const { Document, Packer, Paragraph, HeadingLevel, AlignmentType } = require('docx');
-
+const fs = require('fs/promises');
 
 const cleanTextForDocx = (text) => {
     return text ? text.replace(/\0/g, '').replace(/\u00A0/g, ' ') : '';
 };
-
-
 
 const createArabicDocx = async (title, content) => {
     const children = [];
@@ -34,7 +31,7 @@ const createArabicDocx = async (title, content) => {
             default: {
                 document: {
                     run: { font: "Traditional Arabic", size: "12pt", rightToLeft: true },
-                    paragraph: { alignment: AlignmentType.RIGHT, rightToLeft: true, spacing: { after: 120 } },
+                    paragraph: { alignment: AlignmentType.RIGHT, spacing: { after: 120 } },
                 },
                 heading1: {
                     run: { font: "Traditional Arabic", size: "18pt", bold: true, color: "0056b3" },
@@ -47,46 +44,56 @@ const createArabicDocx = async (title, content) => {
             },
         },
         sections: [{
+            properties: { rightToLeft: true }, // تفعيل الاتجاه من اليمين لليسار للقسم كله
             children: children,
         }],
     });
 
     return Packer.toBuffer(doc);
 };
-const processRequest = async (req, res, promptTemplate, docxTitle, responseJsonKey) => {
-    const { text, query, style, outputFormat } = req.body;
-    let contentToProcess = text;
 
+
+const processRequest = async (req, res, promptTemplate, docxTitle, responseJsonKey) => {
+    // تم دمج المتغيرات من كلا الكودين
+    const { text, query, style, outputFormat, caseFacts, representedParty } = req.body;
+    let contentToProcess = text || caseFacts; // المحتوى الرئيسي يأتي من text أو caseFacts
+
+    // معالجة الملف المرفوع
     if (req.file) {
         try {
             contentToProcess = await extractTextFromFile(req.file.path);
-            await fs.unlink(req.file.path);
+                        await fs.unlink(req.file.path);
         } catch (error) {
             res.status(400);
             throw new Error('Failed to extract text from uploaded file: ' + error.message);
         }
     }
 
-    if (!contentToProcess || (promptTemplate.includes('{query}') && !query)) {
+    // التحقق من وجود المحتوى المطلوب
+    if (!contentToProcess) {
         res.status(400);
-        throw new Error('Missing required text, file, or query.');
+        throw new Error('Missing required text, caseFacts, or file.');
     }
 
+    // بناء الـ Prompt بشكل ديناميكي
     const prompt = promptTemplate
         .replace('{contentToProcess}', contentToProcess)
         .replace('{query}', query || '')
-        .replace('{style}', style ? `بأسلوب ${style} قانوني ومناسب.` : 'بأسلوب قانوني رسمي ومناسب.');
+        .replace('{style}', style ? `بأسلوب ${style} قانوني ومناسب.` : 'بأسلوب قانوني رسمي ومناسب.')
+        .replace('{representedParty}', representedParty || ''); // إضافة المتغير الجديد
 
     try {
         const response = await chatModel.invoke(prompt);
         const generatedContent = response.content;
 
+        // حساب التوكنز المستهلكة
         if (req.user) {
-            const estimatedTokens = (contentToProcess.length + generatedContent.length) / 4;
+            const estimatedTokens = (prompt.length + generatedContent.length) / 4;
             req.user.tokensConsumed += Math.ceil(estimatedTokens);
             await req.user.save();
         }
 
+        // إرجاع الاستجابة بالتنسيق المطلوب
         if (outputFormat === 'docx') {
             const cleanedContent = cleanTextForDocx(generatedContent);
             const buffer = await createArabicDocx(docxTitle, cleanedContent);
@@ -101,53 +108,35 @@ const processRequest = async (req, res, promptTemplate, docxTitle, responseJsonK
     }
 };
 
-const summarizeText = asyncHandler(async (req, res) => {
-    const promptTemplate = `
-        أنت مساعد قانوني متخصص في القانون المصري.
-        الرجاء تلخيص النص القانوني التالي إلى نقاط رئيسية وموجزة، مع الحفاظ على الدقة والمصطلحات القانونية قدر الإمكان.
-        اجعل التلخيص سهل القراءة ويركز على النقاط الأساسية.
 
-        النص:
+const generatePersuasionPoints = asyncHandler(async (req, res) => {
+    // 1. التحقق من المدخلات الخاصة بهذه الوظيفة تحديداً
+    const { representedParty } = req.body;
+    const content = req.body.caseFacts || req.file;
+    if (!content || !representedParty) {
+        res.status(400);
+        throw new Error('Please provide case facts (or a file) and the represented party.');
+    }
+
+    // 2. تحديد الـ Prompt الخاص بالوظيفة مع استخدام المتغيرات القياسية
+    const promptTemplate = `
+        أنت محامٍ خبير ومساعد قانوني متخصص في القانون المصري، ولديك مهارة عالية في صياغة الحجج المقنعة. مهمتك هي تحليل وقائع القضية التالية وتقديم "نقاط إقناع" قوية وحجج قانونية مركزة لدعم موقف "{representedParty}".
+
+        ركز على الجوانب الأكثر تأثيراً في القضية التي يمكن أن تدعم موقف {representedParty}، واستخرج الحقائق الأساسية التي يمكن تحويلها إلى أدلة قوية.
+
+        وقائع القضية:
         "{contentToProcess}"
 
-        التلخيص (نقاط رئيسية):
+        الطرف الذي أمثله: "{representedParty}"
+
+        نقاط الإقناع والحجج القانونية المقترحة لموقف {representedParty} (على هيئة نقاط واضحة ومختصرة باستخدام علامة * في بداية كل نقطة):
     `;
-    await processRequest(req, res, promptTemplate, "ملخص قانوني", "summary");
+
+    // 3. استدعاء الدالة المركزية مع تمرير المعطيات المناسبة
+    await processRequest(req, res, promptTemplate, `نقاط إقناع لموقف ${representedParty}`, "persuasionPoints");
 });
 
-const extractInformation = asyncHandler(async (req, res) => {
-    const promptTemplate = `
-        أنت مساعد قانوني متخصص في القانون المصري.
-        من النص القانوني التالي، الرجاء استخلاص المعلومات المحددة بناءً على السؤال/الاستعلام.
-        قدم المعلومات المستخلصة في شكل نقاط أو قائمة واضحة.
-        إذا لم تكن المعلومات موجودة بشكل صريح في النص، اذكر ذلك بوضوح.
-
-        النص:
-        "{contentToProcess}"
-
-        السؤال/الاستعلام: "{query}"
-
-        المعلومات المستخلصة:
-    `;
-    await processRequest(req, res, promptTemplate, "استخلاص معلومات قانونية", "extractedInfo");
-});
-
-const rephraseText = asyncHandler(async (req, res) => {
-    const promptTemplate = `
-        أنت مساعد قانوني متخصص في القانون المصري.
-        الرجاء إعادة صياغة النص التالي {style} مع الحفاظ على المعنى القانوني الأصلي والدقة.
-        إذا كان الأسلوب المطلوب يتعارض مع الدقة القانونية، أشر إلى ذلك.
-
-        النص:
-        "{contentToProcess}"
-
-        النص المعاد صياغته:
-    `;
-    await processRequest(req, res, promptTemplate, "إعادة صياغة قانونية", "rephrasedText");
-});
 
 module.exports = {
-    summarizeText,
-    extractInformation,
-    rephraseText,
+    generatePersuasionPoints, // إضافة الوظيفة الجديدة
 };

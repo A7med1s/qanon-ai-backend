@@ -1,13 +1,12 @@
 const express = require('express');
-const multer = require('multer'); 
+const multer = require('multer'); // عشان لو المستخدم رفع ملف
 const { protect } = require('../middleware/authMiddleware');
-const { sendMessage, getConversations, getConversationById } = require('../controllers/chatController');
+const { generatePersuasionPoints } = require('../controllers/legalStorytellingController');
 
 const router = express.Router();
-
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        const fs = require('fs');
+        const fs = require('fs'); 
         const path = require('path');
         const uploadDir = path.join(__dirname, '..', 'uploads');
 
@@ -21,11 +20,10 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage: storage });
+// إعداد Multer لتخزين الملفات في الذاكرة (Memory Storage)
+const upload = multer({ storage: multer.memoryStorage() });
 
-router.post('/send-message', protect('basic'), upload.single('file'), sendMessage); 
-
-router.get('/conversations', protect(), getConversations); 
-router.get('/conversations/:id', protect(), getConversationById);
+// مسار توليد نقاط الإقناع
+router.post('/generate-persuasion-points', protect('basic'), upload.single('file'), generatePersuasionPoints); // ممكن يستقبل ملف
 
 module.exports = router;
